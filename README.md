@@ -1,6 +1,8 @@
 <img src="https://raw.githubusercontent.com/KilDoomWise/OCNP/refs/heads/main/assets/logo.png" alt="logo">
 OpenComputers Network Protocol — a modern, structured, deterministic networking standard for the OpenComputers mod.
+
 ---
+
 ## Overview
 
 **OCNP** is a unified network protocol designed to standardize communication inside OpenComputers environments.
