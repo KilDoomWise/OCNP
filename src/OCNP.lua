@@ -10,7 +10,6 @@ OCNP.HEADER_OVERHEAD = 150
 OCNP.CHUNK_SIZE = 7000
 OCNP.DEFAULT_TTL = 16
 
--- === УЛУЧШЕННАЯ ГЕНЕРАЦИЯ UID ===
 local uidCounter = 0
 local lastUIDTime = 0
 
@@ -35,7 +34,6 @@ local function calculateHash(data)
 end
 
 function OCNP.generateUID(sender, seq, ts)
-  -- Увеличиваем счетчик для уникальности
   uidCounter = (uidCounter + 1) % 1000000
   
   -- Если время изменилось, сбрасываем счетчик (опционально)
@@ -44,7 +42,6 @@ function OCNP.generateUID(sender, seq, ts)
     uidCounter = 0
   end
   
-  -- Включаем счетчик в базу для генерации UID
   local base = sender .. ":" .. tostring(seq) .. ":" .. tostring(ts) .. ":" .. tostring(uidCounter)
   local hash = calculateHash(base)
   
