@@ -10,6 +10,10 @@ OCNP.HEADER_OVERHEAD = 150
 OCNP.CHUNK_SIZE = 7000
 OCNP.DEFAULT_TTL = 16
 
+-- === УЛУЧШЕННАЯ ГЕНЕРАЦИЯ UID ===
+local uidCounter = 0
+local lastUIDTime = 0
+
 OCNP.TYPE = {
   DATA = "D",
   ACK = "A",
@@ -31,9 +35,21 @@ local function calculateHash(data)
 end
 
 function OCNP.generateUID(sender, seq, ts)
-  local base = sender .. ":" .. tostring(seq) .. ":" .. tostring(ts)
+  -- Увеличиваем счетчик для уникальности
+  uidCounter = (uidCounter + 1) % 1000000
+  
+  -- Если время изменилось, сбрасываем счетчик (опционально)
+  if ts ~= lastUIDTime then
+    lastUIDTime = ts
+    uidCounter = 0
+  end
+  
+  -- Включаем счетчик в базу для генерации UID
+  local base = sender .. ":" .. tostring(seq) .. ":" .. tostring(ts) .. ":" .. tostring(uidCounter)
   local hash = calculateHash(base)
-  return string.format("%08X", tonumber(hash, 16) * 256 + (#base % 256))
+  
+  -- Генерируем 8-значный HEX UID
+  return string.format("%08X", (tonumber(hash, 16) * 256 + uidCounter) % 4294967296)
 end
 
 function OCNP.createPacket(sender, receiver, ptype, payload, seq, uid, ts, ttl)
@@ -62,7 +78,7 @@ function OCNP.createPacket(sender, receiver, ptype, payload, seq, uid, ts, ttl)
   local hash = calculateHash(base .. payload)
   
   local packet = base .. OCNP.DELIMITER .. hash .. OCNP.DELIMITER .. payload
-
+  
   return packet
 end
 
@@ -204,7 +220,7 @@ end
 function OCNP.sendTo(modem, sourceMAC, targetMAC, port, sender, receiver, ptype, payload, seq, uid, ts, ttl)
   local packet = OCNP.createPacket(sender, receiver, ptype, payload, seq, uid, ts, ttl)
   if modem.send then
-    modem.send(targetMAC, sourceMAC, port, packet)
+    modem.send(targetMAC, port, packet) 
   else
     modem.broadcast(port, packet)
   end
