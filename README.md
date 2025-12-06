@@ -1,173 +1,199 @@
-<img src="https://raw.githubusercontent.com/KilDoomWise/OCNP/refs/heads/main/assets/logo.png" alt="logo">
-OpenComputers Network Protocol — a modern, structured, deterministic networking standard for the OpenComputers mod.
+# OpenComputers Network Protocol (OCNP v1.1)
+
+<img src="https://raw.githubusercontent.com/KilDoomWise/OCNP/refs/heads/main/assets/logo.png" alt="logo"/>
 
 ---
 
 ## Overview
 
-**OCNP** is a unified network protocol designed to standardize communication inside OpenComputers environments.
+**OCNP** is a unified packet format and validation standard for communication inside OpenComputers. It defines how packets should be structured, hashed, validated, and safely forwarded across multiple hops.
 
-It describes **how packets should be structured, validated and delivered**, making it possible to build complex decentralized networks (like OCN) or just use OCNP as a convenient packet format for smaller setups.
+OCNP is **not** a network implementation. It is a **protocol layer** used by networks like OCN or by standalone systems.
 
 OCNP focuses on:
 
-* Predictable packet format
-* Safe multi-hop forwarding
-* TTL and loop prevention
-* UID-based anti-replay
-* Deterministic behavior across nodes
-
-OCNP **is not the network itself** — it is the protocol used by networks such as OCN.
+* Consistent packet structure
+* TTL-based loop protection
+* UID‑based anti‑replay
+* Deterministic validation rules
+* Multi-hop friendliness
+* Simple and lightweight Lua implementation
 
 ---
 
 ## Key Features
 
-* **Strict unified packet schema**
-* **UID + timestamp anti-replay system**
-* **TTL-based loop protection**
-* **Multi-hop friendly**
-* **Router and ISP-friendly design**
-* **Lightweight Lua implementation**
-* **Pure protocol — can work with any topology or system**
+* Strict delimiter‑based packet schema
+* UID generation based on sender, sequence number, and timestamp
+* Hash-based corruption detection
+* TTL enforcement on every hop
+* Support for large data transmission via chunking
+* Fully topology‑agnostic
 
 ---
 
 ## Packet Structure (OCNP v1.1)
 
-All packets follow the same schema:
+OCNP packets are transmitted as **plain strings** with fields separated by the delimiter `|`.
 
-```lua
-{
-  v = "1.1",
-  uid = "<unique-id>",
-  ts = <timestamp>,
-  src = "a.b.c.d",
-  dst = "a.b.c.d",
-  ttl = 16,
-  payload = {
-    type = "<string>",
-    data = <table or string>
-  }
-}
+### Packet layout
+
+```
+version | type | src | dst | seq | uid | ts | ttl | hash | payload
 ```
 
-### Field definitions
+### Example
 
-| Field     | Description                                           |
-| --------- | ----------------------------------------------------- |
-| `v`       | Protocol version                                      |
-| `uid`     | Unique packet identifier preventing replay/duplicates |
-| `ts`      | Timestamp of creation                                 |
-| `src`     | Source IP                                             |
-| `dst`     | Destination IP                                        |
-| `ttl`     | Decreases every hop; packet drops at 0                |
-| `payload` | Application/user data                                 |
+```
+1.1|D|10.0.1.5|10.0.1.7|42|00AF12C3|12345|14|9F2A|hello world
+```
+
+### Field Definitions
+
+| Field   | Description                       |
+| ------- | --------------------------------- |
+| version | Protocol version ("1.1")          |
+| type    | Packet type (D/A/C/R/P/E/S/F/O)   |
+| src     | Source address                    |
+| dst     | Destination address               |
+| seq     | Sequence number                   |
+| uid     | Unique packet identifier          |
+| ts      | Timestamp at creation             |
+| ttl     | Time-To-Live counter              |
+| hash    | Integrity checksum                |
+| payload | Data (string or serialized table) |
 
 ---
 
 ## UID Generation
 
-OCNP uses deterministic UID generation:
+UID is generated exactly as defined in the Lua implementation:
 
 ```
-UID = HEX(hash(src .. ":" .. seq .. ":" .. ts))
+base = src .. ":" .. seq .. ":" .. ts
+hash = calculateHash(base)        -- 16-bit additive checksum
+UID  = HEX(hash * 256 + (#base % 256))
 ```
 
-This ensures:
+UID ensures:
 
-* deduplication across routers
-* anti-replay security
-* predictable log recovery
-
-Length can be 4–8 hex characters.
+* Replay protection
+* Duplicate detection
+* Deterministic identification across routers
 
 ---
 
-## How OCNP Is Used
+## Packet Hashing
 
-OCNP **does not prescribe a network architecture**.
-
-It can be used in:
-
-* Simple 1-hop LAN systems
-* Multi-hop router chains
-* Full OCN provider-based topologies
-* Peer-to-peer systems
-* Custom routing daemons
-
-The protocol only defines **how packets look and how they must be handled**.
-Everything else (routing tables, ISPs, IX nodes, topology) is the responsibility of the network (e.g., OCN).
-
----
-
-## Responsibilities of OCNP
-
-### OCNP **does**:
-
-* Define packet format
-* Define UID rules
-* Define TTL rules
-* Define what counts as a valid or invalid packet
-* Define how nodes should validate packets
-
-### OCNP **does NOT**:
-
-* Define routing algorithms
-* Define how networks discover peers
-* Define ISP structure
-* Define topology
-* Define how nodes find each other
-* Provide DNS
-* Provide security layers or encryption
-
-These belong to the network layer built *on top* (e.g., OCN).
-
----
-
-## Example Workflow
+OCNP uses a simple checksum to detect corrupted packets:
 
 ```
-App → OCNP encoder → (your router logic) → modem.send()
+hash = sum(bytes of (header + payload)) % 65536
 ```
 
-On receiving:
-
-```
-modem_message → OCNP validator → UID/TTL checks → router/logic
-```
-
-Routers/networks can choose any forwarding logic they want — OCNP only ensures packets are structured and safe.
+This is not a cryptographic function — it is only for integrity checking.
 
 ---
 
-## Version Compatibility
+## TTL Behavior
 
-* **v1.1** supports UID + timestamp
-* **v1.0** packets are accepted but lack those fields
-* Routers may fall back or convert
+Every forwarding node must decrement TTL by 1.
 
----
+If TTL reaches 0 → the packet is dropped.
 
-## Why Use OCNP?
-
-* Makes packets consistent across all programs
-* Prevents loops and replay attacks
-* Enables multi-hop networks
-* Easy to debug due to strict schema
-* Works even in extremely large OCN-like topologies
+Routers do **not** modify `src`, `uid`, or any other fields.
 
 ---
 
-## Future Plans
+## Packet Types
 
-* Optional reliability extensions
-* Optional compression
-* Optional encryption wrapper (outside protocol core)
-* Performance optimizations
+| Code | Name      | Description                  |
+| ---- | --------- | ---------------------------- |
+| D    | DATA      | Standard data packet         |
+| A    | ACK       | Acknowledgement              |
+| C    | CHUNK     | Chunk of large data transfer |
+| R    | CHUNK_REQ | Request for missing chunk    |
+| P    | PING      | Connectivity check           |
+| E    | ERROR     | Error message                |
+| S    | SYN       | Session start (optional)     |
+| F    | FIN       | Session end (optional)       |
+| O    | ORS       | Internal OCN service packet  |
+
+---
+
+## Large Data Handling (Chunking)
+
+OCNP supports sending large strings by splitting them into smaller pieces.
+
+### Chunk Format
+
+Each chunk payload follows:
+
+```
+chunkId:totalChunks:totalSize:fileHash:chunkData
+```
+
+* Chunk IDs start from **0**.
+* `fileHash` is the checksum of the entire original data.
+
+### Assembly
+
+The receiver stores chunks by index, concatenates them in order, and verifies `fileHash`.
+
+---
+
+## Limitations
+
+From the current implementation:
+
+* `MAX_PACKET_SIZE = 8192`
+* `HEADER_OVERHEAD = 150`
+* `CHUNK_SIZE = 7000`
+
+Payloads larger than ~7 KB require chunking.
+
+---
+
+## Usage
+
+### Sending a packet
+
+```lua
+OCNP.send(modem, 69, "10.0.0.1", "10.0.0.5", OCNP.TYPE.DATA, "hi")
+```
+
+### Parsing a packet
+
+```lua
+local parsed = OCNP.parsePacket(packet)
+```
+
+---
+
+## What OCNP Defines / Does Not Define
+
+### OCNP does:
+
+* Define packet schema
+* Validate structure
+* Ensure integrity (hash)
+* Enforce TTL
+* Generate UID
+* Provide chunking logic
+
+### OCNP does **not**:
+
+* Provide routing
+* Discover peers
+* Implement topology
+* Offer addressing rules
+* Include encryption
+* Replace DNS or ISP systems
+
+These belong to the network layer (e.g., OCN) built on top of OCNP.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License.
+MIT License.
