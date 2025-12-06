@@ -1,4 +1,4 @@
-[<img src="https://github.com/KilDoomWise/OCNP/assets/logo.png">](https://github.com/KilDoomWise/OCNP/blob/main/assets/logo.png?raw=true)
+<img src="https://raw.githubusercontent.com/KilDoomWise/OCNP/refs/heads/main/assets/logo.png" alt="logo">
 OpenComputers Network Protocol — a modern, structured, deterministic networking standard for the OpenComputers mod.
 
 <p align="center">
