@@ -1,15 +1,6 @@
 <img src="https://raw.githubusercontent.com/KilDoomWise/OCNP/refs/heads/main/assets/logo.png" alt="logo">
 OpenComputers Network Protocol — a modern, structured, deterministic networking standard for the OpenComputers mod.
-
-<p align="center">
-<a href="https://github.com/KilDoomWise/OCNP"><img src="https://img.shields.io/badge/Project-OCNP-blue?style=for-the-badge"></a>
-<a href="https://github.com/KilDoomWise/OCNP/blob/main/LICENSE"><img src="https://img.shields.io/github/license/KilDoomWise/OCNP?style=for-the-badge"></a>
-<a href="https://github.com/KilDoomWise/OCNP"><img src="https://img.shields.io/github/stars/KilDoomWise/OCNP?style=for-the-badge"></a>
-<a href="https://github.com/KilDoomWise/OCNP"><img src="https://img.shields.io/github/last-commit/KilDoomWise/OCNP?style=for-the-badge"></a>
-</p>
-
 ---
-
 ## Overview
 
 **OCNP** is a unified network protocol designed to standardize communication inside OpenComputers environments.
