@@ -36,7 +36,6 @@ end
 function OCNP.generateUID(sender, seq, ts)
   uidCounter = (uidCounter + 1) % 1000000
   
-  -- Если время изменилось, сбрасываем счетчик (опционально)
   if ts ~= lastUIDTime then
     lastUIDTime = ts
     uidCounter = 0
@@ -45,8 +44,41 @@ function OCNP.generateUID(sender, seq, ts)
   local base = sender .. ":" .. tostring(seq) .. ":" .. tostring(ts) .. ":" .. tostring(uidCounter)
   local hash = calculateHash(base)
   
-  -- Генерируем 8-значный HEX UID
   return string.format("%08X", (tonumber(hash, 16) * 256 + uidCounter) % 4294967296)
+end
+
+-- ========================================
+-- НОВОЕ: Сериализация таблицы пакета в строку
+-- Принимает parsed таблицу, возвращает строку
+-- ========================================
+function OCNP.serialize(parsed)
+  if not parsed then
+    return nil, "No packet to serialize"
+  end
+  
+  local payload = parsed.payload or ""
+  
+  -- Если payload - таблица, сериализуем
+  if type(payload) == "table" then
+    payload = serialization.serialize(payload)
+  end
+  
+  -- Собираем базу для хеша
+  local base = OCNP.VERSION .. OCNP.DELIMITER ..
+               parsed.type .. OCNP.DELIMITER ..
+               parsed.src .. OCNP.DELIMITER ..
+               parsed.dst .. OCNP.DELIMITER ..
+               tostring(parsed.seq) .. OCNP.DELIMITER ..
+               parsed.uid .. OCNP.DELIMITER ..
+               tostring(parsed.ts) .. OCNP.DELIMITER ..
+               tostring(parsed.ttl)
+  
+  -- ПЕРЕСЧИТЫВАЕМ хеш с новыми данными
+  local hash = calculateHash(base .. payload)
+  
+  local packet = base .. OCNP.DELIMITER .. hash .. OCNP.DELIMITER .. payload
+  
+  return packet
 end
 
 function OCNP.createPacket(sender, receiver, ptype, payload, seq, uid, ts, ttl)
@@ -84,6 +116,11 @@ function OCNP.parsePacket(packet)
     return nil, "Empty packet"
   end
   
+  -- Защита: проверяем что это строка
+  if type(packet) ~= "string" then
+    return nil, "Packet must be a string"
+  end
+  
   local parts = {}
   local start = 1
   
@@ -108,7 +145,8 @@ function OCNP.parsePacket(packet)
     ts = tonumber(parts[7]),
     ttl = tonumber(parts[8]),
     hash = parts[9],
-    payload = payload
+    payload = payload,
+    isPayloadTable = false  -- НОВОЕ: флаг типа payload
   }
   
   if parsed.version ~= OCNP.VERSION then
@@ -130,14 +168,45 @@ function OCNP.parsePacket(packet)
     return nil, "Hash mismatch - packet corrupted"
   end
   
+  -- УЛУЧШЕНО: Безопасная десериализация payload
   if payload ~= "" and string.sub(payload, 1, 1) == "{" then
     local success, data = pcall(serialization.unserialize, payload)
-    if success then
+    if success and type(data) == "table" then
       parsed.payload = data
+      parsed.isPayloadTable = true
     end
+    -- Если не получилось - оставляем как строку
   end
   
   return parsed
+end
+
+-- ========================================
+-- ИЗМЕНЕНО: Декремент TTL работает с таблицей
+-- Принимает таблицу, возвращает ту же таблицу (или nil + ошибка)
+-- ========================================
+function OCNP.decrementTTL(parsed)
+  if not parsed then
+    return nil, "No packet"
+  end
+  
+  if parsed.ttl <= 0 then
+    return nil, "TTL expired"
+  end
+  
+  -- Просто уменьшаем TTL в таблице
+  parsed.ttl = parsed.ttl - 1
+  
+  return parsed
+end
+
+-- Старая функция для совместимости (если нужна строка сразу)
+function OCNP.decrementTTLToString(parsed)
+  local result, err = OCNP.decrementTTL(parsed)
+  if not result then
+    return nil, err
+  end
+  return OCNP.serialize(result)
 end
 
 function OCNP.createAck(sender, receiver, seq, uid, ts, ttl)
@@ -184,6 +253,10 @@ function OCNP.parseChunkPacket(parsed)
   end
   
   local payload = parsed.payload
+  if type(payload) ~= "string" then
+    return nil, "Chunk payload must be string"
+  end
+  
   local chunkId, totalChunks, totalSize, fileHash, data = string.match(
     payload,
     "(%d+):(%d+):(%d+):([^:]+):(.*)$"
@@ -214,7 +287,7 @@ function OCNP.send(modem, port, sender, receiver, ptype, payload, seq, uid, ts, 
   return packet
 end
 
-function OCNP.sendTo(modem, sourceMAC, targetMAC, port, sender, receiver, ptype, payload, seq, uid, ts, ttl)
+function OCNP.sendTo(modem, targetMAC, port, sender, receiver, ptype, payload, seq, uid, ts, ttl)
   local packet = OCNP.createPacket(sender, receiver, ptype, payload, seq, uid, ts, ttl)
   if modem.send then
     modem.send(targetMAC, port, packet) 
@@ -233,22 +306,58 @@ function OCNP.receive(eventData)
   return OCNP.parsePacket(packet)
 end
 
-function OCNP.decrementTTL(parsed)
-  if parsed.ttl <= 0 then
-    return nil, "TTL expired"
+-- ========================================
+-- Вспомогательные функции для работы с parsed
+-- ========================================
+
+-- Безопасное получение поля из payload
+function OCNP.getPayloadField(parsed, fieldName, default)
+  if parsed.isPayloadTable and type(parsed.payload) == "table" then
+    return parsed.payload[fieldName] or default
+  end
+  return default
+end
+
+-- Безопасная установка поля в payload
+function OCNP.setPayloadField(parsed, fieldName, value)
+  if not parsed.isPayloadTable then
+    -- Преобразуем payload в таблицу если нужно
+    parsed.payload = {}
+    parsed.isPayloadTable = true
+  end
+  parsed.payload[fieldName] = value
+end
+
+-- Клонирование parsed для безопасности
+function OCNP.cloneParsed(parsed)
+  local clone = {
+    version = parsed.version,
+    type = parsed.type,
+    src = parsed.src,
+    dst = parsed.dst,
+    seq = parsed.seq,
+    uid = parsed.uid,
+    ts = parsed.ts,
+    ttl = parsed.ttl,
+    hash = parsed.hash,
+    isPayloadTable = parsed.isPayloadTable
+  }
+  
+  if parsed.isPayloadTable and type(parsed.payload) == "table" then
+    clone.payload = {}
+    for k, v in pairs(parsed.payload) do
+      clone.payload[k] = v
+    end
+  else
+    clone.payload = parsed.payload
   end
   
-  return OCNP.createPacket(
-    parsed.src,
-    parsed.dst,
-    parsed.type,
-    parsed.payload,
-    parsed.seq,
-    parsed.uid,
-    parsed.ts,
-    parsed.ttl - 1
-  )
+  return clone
 end
+
+-- ========================================
+-- ChunkSender и ChunkReceiver (без изменений)
+-- ========================================
 
 OCNP.ChunkSender = {}
 OCNP.ChunkSender.__index = OCNP.ChunkSender
